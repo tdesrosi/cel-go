@@ -31,150 +31,7 @@ func TestNetwork_Success(t *testing.T) {
 		expr string
 		out  any
 	}{
-		// --- Global Checks (isIP, isCIDR) ---
-		{
-			name: "isIP valid IPv4",
-			expr: "isIP('1.2.3.4')",
-			out:  true,
-		},
-		{
-			name: "isIP valid IPv6",
-			expr: "isIP('2001:db8::1')",
-			out:  true,
-		},
-		{
-			name: "isIP invalid",
-			expr: "isIP('not.an.ip')",
-			out:  false,
-		},
-		{
-			name: "isIP with port (invalid)",
-			expr: "isIP('127.0.0.1:80')",
-			out:  false,
-		},
-		{
-			name: "isCIDR valid",
-			expr: "isCIDR('10.0.0.0/8')",
-			out:  true,
-		},
-		{
-			name: "isCIDR invalid mask",
-			expr: "isCIDR('10.0.0.0/999')",
-			out:  false,
-		},
-
-		// --- IP Constructors & Equality ---
-		{
-			name: "ip equality IPv4",
-			expr: "ip('127.0.0.1') == ip('127.0.0.1')",
-			out:  true,
-		},
-		{
-			name: "ip inequality",
-			expr: "ip('127.0.0.1') == ip('1.2.3.4')",
-			out:  false,
-		},
-		{
-			name: "ip equality IPv6 mixed case inputs",
-			// Logic check: The value is equal even if string rep was different
-			expr: "ip('2001:db8::1') == ip('2001:DB8::1')",
-			out:  true,
-		},
-
-		// --- String Conversion ---
-		{
-			name: "ip to string IPv4",
-			expr: "string(ip('1.2.3.4'))",
-			out:  "1.2.3.4",
-		},
-		{
-			name: "ip to string IPv6",
-			expr: "string(ip('2001:db8::1'))",
-			out:  "2001:db8::1",
-		},
-		{
-			name: "cidr to string IPv4",
-			expr: "string(cidr('10.0.0.0/8'))",
-			out:  "10.0.0.0/8",
-		},
-		{
-			name: "cidr to string IPv6",
-			expr: "string(cidr('::1/128'))",
-			out:  "::1/128",
-		},
-
-		// --- Family ---
-		{
-			name: "family IPv4",
-			expr: "ip('127.0.0.1').family()",
-			out:  int64(4),
-		},
-		{
-			name: "family IPv6",
-			expr: "ip('::1').family()",
-			out:  int64(6),
-		},
-
-		// --- Canonicalization (Critical Feature) ---
-		{
-			name: "isCanonical IPv4 simple",
-			expr: "ip.isCanonical('127.0.0.1')",
-			out:  true,
-		},
-		{
-			name: "isCanonical IPv6 standard",
-			expr: "ip.isCanonical('2001:db8::1')",
-			out:  true,
-		},
-		{
-			name: "isCanonical IPv6 uppercase (invalid)",
-			expr: "ip.isCanonical('2001:DB8::1')",
-			out:  false,
-		},
-		{
-			name: "isCanonical IPv6 expanded (invalid)",
-			expr: "ip.isCanonical('2001:db8:0:0:0:0:0:1')",
-			out:  false,
-		},
-
-		// --- IP Types (Loopback, Unspecified, etc) ---
-		{
-			name: "isLoopback IPv4",
-			expr: "ip('127.0.0.1').isLoopback()",
-			out:  true,
-		},
-		{
-			name: "isLoopback IPv6",
-			expr: "ip('::1').isLoopback()",
-			out:  true,
-		},
-		{
-			name: "isUnspecified IPv4",
-			expr: "ip('0.0.0.0').isUnspecified()",
-			out:  true,
-		},
-		{
-			name: "isUnspecified IPv6",
-			expr: "ip('::').isUnspecified()",
-			out:  true,
-		},
-		{
-			name: "isGlobalUnicast 8.8.8.8",
-			expr: "ip('8.8.8.8').isGlobalUnicast()",
-			out:  true,
-		},
-		{
-			name: "isLinkLocalMulticast",
-			expr: "ip('ff02::1').isLinkLocalMulticast()",
-			out:  true,
-		},
-
-		// --- CIDR Accessors ---
-		{
-			name: "cidr prefixLength",
-			expr: "cidr('192.168.0.0/24').prefixLength()",
-			out:  int64(24),
-		},
+		// CIDR Accessors
 		{
 			name: "cidr ip extraction",
 			expr: "cidr('192.168.0.0/24').ip() == ip('192.168.0.0')",
@@ -197,8 +54,71 @@ func TestNetwork_Success(t *testing.T) {
 			expr: "cidr('192.168.1.0/24').masked() == cidr('192.168.1.0/24')",
 			out:  true,
 		},
+		{
+			name: "cidr prefixLength",
+			expr: "cidr('192.168.0.0/24').prefixLength()",
+			out:  int64(24),
+		},
+		{
+			name: "cidr to string IPv4",
+			expr: "string(cidr('10.0.0.0/8'))",
+			out:  "10.0.0.0/8",
+		},
+		{
+			name: "cidr to string IPv6",
+			expr: "string(cidr('::1/128'))",
+			out:  "::1/128",
+		},
 
-		// --- Containment (IP in CIDR) ---
+		// Containment (CIDR in CIDR)
+		{
+			name: "containsCIDR different family",
+			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('::1/128'))",
+			out:  false,
+		},
+		{
+			name: "containsCIDR disjoint",
+			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('11.0.0.0/8'))",
+			out:  false,
+		},
+		{
+			name: "containsCIDR exact match",
+			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('10.0.0.0/8'))",
+			out:  true,
+		},
+		{
+			name: "containsCIDR larger prefix (false)",
+			// /8 does not contain /4
+			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('0.0.0.0/4'))",
+			out:  false,
+		},
+		{
+			name: "containsCIDR string overload",
+			expr: "cidr('10.0.0.0/8').containsCIDR('10.1.0.0/16')",
+			out:  true,
+		},
+		{
+			name: "containsCIDR subnet",
+			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('10.1.0.0/16'))",
+			out:  true,
+		},
+
+		// Containment (IP in CIDR)
+		{
+			name: "containsIP edge case (broadcast)",
+			expr: "cidr('10.0.0.0/8').containsIP(ip('10.255.255.255'))",
+			out:  true,
+		},
+		{
+			name: "containsIP edge case (network address)",
+			expr: "cidr('10.0.0.0/8').containsIP(ip('10.0.0.0'))",
+			out:  true,
+		},
+		{
+			name: "containsIP false",
+			expr: "cidr('10.0.0.0/8').containsIP(ip('11.0.0.0'))",
+			out:  false,
+		},
 		{
 			name: "containsIP simple",
 			expr: "cidr('10.0.0.0/8').containsIP(ip('10.1.2.3'))",
@@ -209,53 +129,149 @@ func TestNetwork_Success(t *testing.T) {
 			expr: "cidr('10.0.0.0/8').containsIP('10.1.2.3')",
 			out:  true,
 		},
+
+		// IP Constructors & Properties
 		{
-			name: "containsIP edge case (network address)",
-			expr: "cidr('10.0.0.0/8').containsIP(ip('10.0.0.0'))",
+			name: "family IPv4",
+			expr: "ip('127.0.0.1').family()",
+			out:  int64(4),
+		},
+		{
+			name: "family IPv6",
+			expr: "ip('::1').family()",
+			out:  int64(6),
+		},
+		{
+			name: "ip equality IPv4",
+			expr: "ip('127.0.0.1') == ip('127.0.0.1')",
 			out:  true,
 		},
 		{
-			name: "containsIP edge case (broadcast)",
-			expr: "cidr('10.0.0.0/8').containsIP(ip('10.255.255.255'))",
+			name: "ip equality IPv6 mixed case inputs",
+			// Logic check: The value is equal even if string rep was different
+			expr: "ip('2001:db8::1') == ip('2001:DB8::1')",
 			out:  true,
 		},
 		{
-			name: "containsIP false",
-			expr: "cidr('10.0.0.0/8').containsIP(ip('11.0.0.0'))",
+			name: "ip inequality",
+			expr: "ip('127.0.0.1') == ip('1.2.3.4')",
+			out:  false,
+		},
+		{
+			name: "ip to string IPv4",
+			expr: "string(ip('1.2.3.4'))",
+			out:  "1.2.3.4",
+		},
+		{
+			name: "ip to string IPv6",
+			expr: "string(ip('2001:db8::1'))",
+			out:  "2001:db8::1",
+		},
+
+		// IP Canonicalization
+		{
+			name: "isCanonical IPv4 simple",
+			expr: "ip.isCanonical('127.0.0.1')",
+			out:  true,
+		},
+		{
+			name: "isCanonical IPv6 expanded (invalid)",
+			expr: "ip.isCanonical('2001:db8:0:0:0:0:0:1')",
+			out:  false,
+		},
+		{
+			name: "isCanonical IPv6 standard",
+			expr: "ip.isCanonical('2001:db8::1')",
+			out:  true,
+		},
+		{
+			name: "isCanonical IPv6 uppercase (invalid)",
+			expr: "ip.isCanonical('2001:DB8::1')",
 			out:  false,
 		},
 
-		// --- Containment (CIDR in CIDR) ---
+		// IP Types & Predicates
 		{
-			name: "containsCIDR exact match",
-			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('10.0.0.0/8'))",
+			name: "isGlobalUnicast 8.8.8.8",
+			expr: "ip('8.8.8.8').isGlobalUnicast()",
 			out:  true,
 		},
 		{
-			name: "containsCIDR subnet",
-			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('10.1.0.0/16'))",
+			name: "isLinkLocalMulticast",
+			expr: "ip('ff02::1').isLinkLocalMulticast()",
 			out:  true,
 		},
 		{
-			name: "containsCIDR string overload",
-			expr: "cidr('10.0.0.0/8').containsCIDR('10.1.0.0/16')",
+			name: "isLoopback IPv4",
+			expr: "ip('127.0.0.1').isLoopback()",
 			out:  true,
 		},
 		{
-			name: "containsCIDR larger prefix (false)",
-			// /8 does not contain /4
-			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('0.0.0.0/4'))",
+			name: "isLoopback IPv6",
+			expr: "ip('::1').isLoopback()",
+			out:  true,
+		},
+		{
+			name: "isUnspecified IPv4",
+			expr: "ip('0.0.0.0').isUnspecified()",
+			out:  true,
+		},
+		{
+			name: "isUnspecified IPv6",
+			expr: "ip('::').isUnspecified()",
+			out:  true,
+		},
+
+		// Global Predicates (IP & CIDR)
+		{
+			name: "isCIDR invalid mask",
+			expr: "isCIDR('10.0.0.0/999')",
 			out:  false,
 		},
 		{
-			name: "containsCIDR disjoint",
-			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('11.0.0.0/8'))",
+			name: "isCIDR loose (host bits)",
+			expr: "isCIDR('10.0.0.1/8')",
+			out:  true,
+		},
+		{
+			name: "isCIDR valid",
+			expr: "isCIDR('10.0.0.0/8')",
+			out:  true,
+		},
+		{
+			name: "isInterfaceAddress valid (host bits)",
+			expr: "isInterfaceAddress('10.0.0.1/8')",
+			out:  true,
+		},
+		{
+			name: "isIP invalid",
+			expr: "isIP('not.an.ip')",
 			out:  false,
 		},
 		{
-			name: "containsCIDR different family",
-			expr: "cidr('10.0.0.0/8').containsCIDR(cidr('::1/128'))",
+			name: "isIP valid IPv4",
+			expr: "isIP('1.2.3.4')",
+			out:  true,
+		},
+		{
+			name: "isIP valid IPv6",
+			expr: "isIP('2001:db8::1')",
+			out:  true,
+		},
+		{
+			name: "isIP with port (invalid)",
+			expr: "isIP('127.0.0.1:80')",
 			out:  false,
+		},
+		{
+			name: "isStrictCIDR invalid (host bits)",
+			expr: "isStrictCIDR('10.0.0.1/8')",
+			out:  false,
+		},
+		{
+			name: "isStrictCIDR valid",
+			expr: "isStrictCIDR('10.0.0.0/8')",
+			out:  true,
 		},
 	}
 
@@ -339,7 +355,7 @@ func TestNetwork_RuntimeErrors(t *testing.T) {
 			}
 
 			// CEL errors are sometimes wrapped, so we check substring
-			if !types.IsError(types.NewErr(err.Error())) {
+			if !types.IsError(types.NewErr("%s", err.Error())) {
 				// Just a sanity check that it is indeed a CEL-compatible error structure
 				// Not strictly necessary but good practice
 			}
@@ -373,7 +389,7 @@ func TestNetwork_TypeConversions(t *testing.T) {
 	ipVal := IP{Addr: addr}
 	cidrVal := CIDR{Prefix: prefix}
 
-	// --- IP Conversions ---
+	// IP Conversions
 	t.Run("IP ConvertToNative netip.Addr", func(t *testing.T) {
 		got, err := ipVal.ConvertToNative(reflect.TypeOf(netip.Addr{}))
 		if err != nil {
@@ -425,7 +441,7 @@ func TestNetwork_TypeConversions(t *testing.T) {
 		}
 	})
 
-	// --- CIDR Conversions ---
+	// CIDR Conversions
 	t.Run("CIDR ConvertToNative netip.Prefix", func(t *testing.T) {
 		got, err := cidrVal.ConvertToNative(reflect.TypeOf(netip.Prefix{}))
 		if err != nil {

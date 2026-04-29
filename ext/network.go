@@ -65,17 +65,30 @@ const (
 // # CIDR Ranges
 //
 // The `cidr` function converts a string to a Classless Inter-Domain Routing
-// (CIDR) range. If the string is not valid, an error is returned. The `isCIDR`
-// function checks if a string is a valid CIDR notation.
+// (CIDR) range. If the string is not valid, an error is returned.
+//
+// The `isCIDR` function checks if a string is a valid CIDR notation. Note that
+// `isCIDR` is "loose" and allows CIDRs with non-zero host bits (e.g.,
+// '10.0.0.1/8'). For strict validation of subnets, use `isStrictCIDR`.
+//
+// The `isStrictCIDR` function checks if a string is a valid canonical CIDR
+// (no host bits).
+//
+// The `isInterfaceAddress` function is an alias for `isCIDR` that explicitly
+// signifies the intent to allow host bits.
 //
 //	cidr(string) -> cidr
 //	isCIDR(string) -> bool
+//	isStrictCIDR(string) -> bool
+//	isInterfaceAddress(string) -> bool
 //
 // Examples:
 //
 //	cidr('192.168.0.0/24')
 //	cidr('::1/128')
 //	isCIDR('10.0.0.0/8') // true
+//	isStrictCIDR('10.0.0.1/8') // false
+//	isInterfaceAddress('10.0.0.1/8') // true
 //
 // # IP Inspection and Canonicalization
 //
@@ -150,24 +163,28 @@ func NetworkVersion(version uint32) NetworkOption {
 }
 
 const (
-	// Function names matching the original Kubernetes implementation of this networking library
-	isIPFunc             = "isIP"
-	isCIDRFunc           = "isCIDR"
-	ipFunc               = "ip"
+	// Function names matching the original Kubernetes implementation of this networking library.
+	// isStrictCIDR and isInterfaceAddress are added to enable strict isCIDR parsing without breaking
+	// functionality for existing users. Ctx: https://github.com/kubernetes/kubernetes/issues/134224
 	cidrFunc             = "cidr"
+	cidrToString         = "string"
+	containsCIDRFunc     = "containsCIDR"
+	containsIPFunc       = "containsIP"
 	familyFunc           = "family"
+	ipFunc               = "ip"
+	ipToString           = "string"
 	isCanonicalFunc      = "ip.isCanonical"
-	isLoopbackFunc       = "isLoopback"
+	isCIDRFunc           = "isCIDR"
 	isGlobalUnicastFunc  = "isGlobalUnicast"
-	isUnspecifiedFunc    = "isUnspecified"
+	isInterfaceAddrFunc  = "isInterfaceAddress"
+	isIPFunc             = "isIP"
 	isLinkLocalMcastFunc = "isLinkLocalMulticast"
 	isLinkLocalUcastFunc = "isLinkLocalUnicast"
-	containsIPFunc       = "containsIP"
-	containsCIDRFunc     = "containsCIDR"
+	isLoopbackFunc       = "isLoopback"
+	isStrictCIDRFunc     = "isStrictCIDR"
+	isUnspecifiedFunc    = "isUnspecified"
 	maskedFunc           = "masked"
 	prefixLengthFunc     = "prefixLength"
-	cidrToString         = "string"
-	ipToString           = "string"
 )
 
 var (
@@ -193,21 +210,30 @@ func (*networkLib) CompileOptions() []cel.EnvOption {
 		),
 
 		// 2. Register Functions
-		cel.Function(isIPFunc,
-			cel.Overload("is_ip", []*cel.Type{cel.StringType}, cel.BoolType,
-				cel.UnaryBinding(netIsIP)),
-		),
-		cel.Function(ipToString,
-			cel.Overload("ip_to_string", []*cel.Type{IPType}, cel.StringType,
-				cel.UnaryBinding(netIPToString)),
-		),
-		cel.Function(isCIDRFunc,
-			cel.Overload("is_cidr", []*cel.Type{cel.StringType}, cel.BoolType,
-				cel.UnaryBinding(netIsCIDR)),
+		cel.Function(cidrFunc,
+			// K8s Parity: Following the pattern, this is "string_to_cidr"
+			cel.Overload("string_to_cidr", []*cel.Type{cel.StringType}, CIDRType,
+				cel.UnaryBinding(netCIDRString)),
 		),
 		cel.Function(cidrToString,
 			cel.Overload("cidr_to_string", []*cel.Type{CIDRType}, cel.StringType,
 				cel.UnaryBinding(netCIDRToString)),
+		),
+		cel.Function(containsCIDRFunc,
+			cel.MemberOverload("cidr_contains_cidr", []*cel.Type{CIDRType, CIDRType}, cel.BoolType,
+				cel.BinaryBinding(netCIDRContainsCIDR)),
+			cel.MemberOverload("cidr_contains_cidr_string", []*cel.Type{CIDRType, cel.StringType}, cel.BoolType,
+				cel.BinaryBinding(netCIDRContainsCIDRString)),
+		),
+		cel.Function(containsIPFunc,
+			cel.MemberOverload("cidr_contains_ip_ip", []*cel.Type{CIDRType, IPType}, cel.BoolType,
+				cel.BinaryBinding(netCIDRContainsIP)),
+			cel.MemberOverload("cidr_contains_ip_string", []*cel.Type{CIDRType, cel.StringType}, cel.BoolType,
+				cel.BinaryBinding(netCIDRContainsIPString)),
+		),
+		cel.Function(familyFunc,
+			cel.MemberOverload("ip_family", []*cel.Type{IPType}, cel.IntType,
+				cel.UnaryBinding(netIPFamily)),
 		),
 		cel.Function(ipFunc,
 			// K8s Parity: The global overload is named "string_to_ip"
@@ -217,30 +243,29 @@ func (*networkLib) CompileOptions() []cel.EnvOption {
 			cel.MemberOverload("cidr_ip", []*cel.Type{CIDRType}, IPType,
 				cel.UnaryBinding(netCIDRIP)),
 		),
-		cel.Function(cidrFunc,
-			// K8s Parity: Following the pattern, this is "string_to_cidr"
-			cel.Overload("string_to_cidr", []*cel.Type{cel.StringType}, CIDRType,
-				cel.UnaryBinding(netCIDRString)),
-		),
-		cel.Function(familyFunc,
-			cel.MemberOverload("ip_family", []*cel.Type{IPType}, cel.IntType,
-				cel.UnaryBinding(netIPFamily)),
+		cel.Function(ipToString,
+			cel.Overload("ip_to_string", []*cel.Type{IPType}, cel.StringType,
+				cel.UnaryBinding(netIPToString)),
 		),
 		cel.Function(isCanonicalFunc,
 			cel.Overload("ip_is_canonical", []*cel.Type{cel.StringType}, cel.BoolType,
 				cel.UnaryBinding(netIPIsCanonical)),
 		),
-		cel.Function(isLoopbackFunc,
-			cel.MemberOverload("ip_is_loopback", []*cel.Type{IPType}, cel.BoolType,
-				cel.UnaryBinding(netIPIsLoopback)),
+		cel.Function(isCIDRFunc,
+			cel.Overload("is_cidr", []*cel.Type{cel.StringType}, cel.BoolType,
+				cel.UnaryBinding(netIsCIDR)),
 		),
 		cel.Function(isGlobalUnicastFunc,
 			cel.MemberOverload("ip_is_global_unicast", []*cel.Type{IPType}, cel.BoolType,
 				cel.UnaryBinding(netIPIsGlobalUnicast)),
 		),
-		cel.Function(isUnspecifiedFunc,
-			cel.MemberOverload("ip_is_unspecified", []*cel.Type{IPType}, cel.BoolType,
-				cel.UnaryBinding(netIPIsUnspecified)),
+		cel.Function(isInterfaceAddrFunc,
+			cel.Overload("is_interface_address", []*cel.Type{cel.StringType}, cel.BoolType,
+				cel.UnaryBinding(netIsCIDR)),
+		),
+		cel.Function(isIPFunc,
+			cel.Overload("is_ip", []*cel.Type{cel.StringType}, cel.BoolType,
+				cel.UnaryBinding(netIsIP)),
 		),
 		cel.Function(isLinkLocalMcastFunc,
 			cel.MemberOverload("ip_is_link_local_multicast", []*cel.Type{IPType}, cel.BoolType,
@@ -250,17 +275,17 @@ func (*networkLib) CompileOptions() []cel.EnvOption {
 			cel.MemberOverload("ip_is_link_local_unicast", []*cel.Type{IPType}, cel.BoolType,
 				cel.UnaryBinding(netIPIsLinkLocalUnicast)),
 		),
-		cel.Function(containsIPFunc,
-			cel.MemberOverload("cidr_contains_ip_ip", []*cel.Type{CIDRType, IPType}, cel.BoolType,
-				cel.BinaryBinding(netCIDRContainsIP)),
-			cel.MemberOverload("cidr_contains_ip_string", []*cel.Type{CIDRType, cel.StringType}, cel.BoolType,
-				cel.BinaryBinding(netCIDRContainsIPString)),
+		cel.Function(isLoopbackFunc,
+			cel.MemberOverload("ip_is_loopback", []*cel.Type{IPType}, cel.BoolType,
+				cel.UnaryBinding(netIPIsLoopback)),
 		),
-		cel.Function(containsCIDRFunc,
-			cel.MemberOverload("cidr_contains_cidr", []*cel.Type{CIDRType, CIDRType}, cel.BoolType,
-				cel.BinaryBinding(netCIDRContainsCIDR)),
-			cel.MemberOverload("cidr_contains_cidr_string", []*cel.Type{CIDRType, cel.StringType}, cel.BoolType,
-				cel.BinaryBinding(netCIDRContainsCIDRString)),
+		cel.Function(isStrictCIDRFunc,
+			cel.Overload("is_strict_cidr", []*cel.Type{cel.StringType}, cel.BoolType,
+				cel.UnaryBinding(netIsStrictCIDR)),
+		),
+		cel.Function(isUnspecifiedFunc,
+			cel.MemberOverload("ip_is_unspecified", []*cel.Type{IPType}, cel.BoolType,
+				cel.UnaryBinding(netIPIsUnspecified)),
 		),
 		cel.Function(maskedFunc,
 			cel.MemberOverload("cidr_masked", []*cel.Type{CIDRType}, CIDRType,
@@ -361,26 +386,6 @@ func netCIDRToString(val ref.Val) ref.Val {
 	return types.String(cidr.Prefix.String())
 }
 
-func netIsCIDR(val ref.Val) ref.Val {
-	s := val.(types.String)
-	_, err := parseCIDR(string(s))
-	return types.Bool(err == nil)
-}
-
-func parseCIDR(raw string) (netip.Prefix, error) {
-	prefix, err := netip.ParsePrefix(raw)
-	if err != nil {
-		return netip.Prefix{}, fmt.Errorf("CIDR %q parse error during conversion from string: %v", raw, err)
-	}
-	if prefix.Addr().Zone() != "" {
-		return netip.Prefix{}, fmt.Errorf("CIDR %q with zone value is not allowed", raw)
-	}
-	if prefix.Addr().Is4In6() {
-		return netip.Prefix{}, fmt.Errorf("IPv4-mapped IPv6 address %q is not allowed", raw)
-	}
-	return prefix, nil
-}
-
 func netIPFamily(val ref.Val) ref.Val {
 	ip := val.(IP)
 	if ip.Addr.Is4() {
@@ -439,10 +444,40 @@ func netIPToString(val ref.Val) ref.Val {
 	return types.String(ip.Addr.String())
 }
 
+func netIsCIDR(val ref.Val) ref.Val {
+	s := val.(types.String)
+	_, err := parseCIDR(string(s))
+	return types.Bool(err == nil)
+}
+
 func netIsIP(val ref.Val) ref.Val {
 	s := val.(types.String)
 	_, err := parseIPAddr(string(s))
 	return types.Bool(err == nil)
+}
+
+func netIsStrictCIDR(val ref.Val) ref.Val {
+	s := val.(types.String)
+	prefix, err := parseCIDR(string(s))
+	if err != nil {
+		return types.False
+	}
+	// Strict check: address must match its masked version (no host bits)
+	return types.Bool(prefix.Addr() == prefix.Masked().Addr())
+}
+
+func parseCIDR(raw string) (netip.Prefix, error) {
+	prefix, err := netip.ParsePrefix(raw)
+	if err != nil {
+		return netip.Prefix{}, fmt.Errorf("CIDR %q parse error during conversion from string: %v", raw, err)
+	}
+	if prefix.Addr().Zone() != "" {
+		return netip.Prefix{}, fmt.Errorf("CIDR %q with zone value is not allowed", raw)
+	}
+	if prefix.Addr().Is4In6() {
+		return netip.Prefix{}, fmt.Errorf("IPv4-mapped IPv6 address %q is not allowed", raw)
+	}
+	return prefix, nil
 }
 
 func parseIPAddr(raw string) (netip.Addr, error) {
